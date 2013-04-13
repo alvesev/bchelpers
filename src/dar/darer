@@ -1,0 +1,410 @@
+#!/bin/bash
+
+#
+#  Copyright 2010-2013 Alex Vesev
+#
+#  This file is part of BCHelpers.
+#
+#  BCHelpers is free software: you can redistribute it and/or modify
+#  it under the terms of the GNU General Public License as published by
+#  the Free Software Foundation, either version 3 of the License, or
+#  (at your option) any later version.
+#
+#  BCHelpers is distributed in the hope that it will be useful,
+#  but WITHOUT ANY WARRANTY; without even the implied warranty of
+#  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+#  GNU General Public License for more details.
+#
+#  You should have received a copy of the GNU General Public License
+#  along with BCHelpers.  If not, see <http://www.gnu.org/licenses/>.
+#
+##
+
+#  BCHelpers is a set of tools to assist with backup routine operations.
+#
+##
+
+declare -r timestamp="$( date '+%Y-%m-%d_%H-%M_%S' )"
+
+######################################
+##  declarations to be changed by user
+
+
+declare -r archiveSetHumanId="username-hostname" # A kind of universal, hostname based ID for single base and all the other differential archives.
+declare -r archiveSetStartDate="2010-07-04" # This is unique, time based Id for whole archive set.
+
+
+# Root directory to be backuped.
+declare -r dirTopToBeProcessed="/home/user/"
+
+# Directories to be included into archive.
+# One by one per line. Leading or trailing '/' symbol will be striped.
+declare -r includeItemsIntoArchiveList="
+# commentary/possible/here
+"
+
+# Directories to be ignored while archiving.
+# One by one per line. Leading or trailing '/' symbol will be striped.
+declare -r ignoreItemsList="
+# commentary/possible/here
+.VirtualBox
+.cache
+.aMule
+.thumbnails
+.virt-sys-storages
+.KVM-storages
+.Private
+.googleearth
+.google-earth
+"
+
+# Files not to be compressed.
+# One by one per line. Leading or trailing '/' symbol will be striped.
+declare -r itemsNotToBeComressedList="
+*.zip
+*.bz2
+*.gz
+*.rar
+*.jpg
+*.png
+*.gif
+"
+
+##  declarations to be changed by user
+######################################
+
+
+
+
+#########################
+##  internal declarations
+
+#  XXX - this information must be organised in a more evident way.
+#  This script location and location of a directories with base and
+#  differential archives are the same. I.e. put this script into
+#  a directory for base and differential archives. Base and differential
+#  archives are located in corresponging subdirectories.
+if [ "$( dirname "${0}" )" == "." ] ; then
+    declare -r dirWithArchives="$( pwd )"
+else
+    declare -r dirWithArchives="$( dirname "${0}" )"
+fi
+
+# Where is located the base archive.
+declare -r dirWithBaseArchive="${dirWithArchives}/base-${archiveSetStartDate}"
+declare -r baseArchFileNamePrefix="${archiveSetHumanId}_base"
+declare -r fileBaseArchShortName="${baseArchFileNamePrefix}_${archiveSetStartDate}"
+declare -r fileBaseArchFullName="${dirWithBaseArchive}/${fileBaseArchShortName}"
+
+# Where to create differential backup.
+declare -r dirWithDiffArchive="${dirWithArchives}/diff-${timestamp}"
+declare -r diffArchFileNamePrefix="${archiveSetHumanId}_diff"
+declare -r fileDiffArchShortName="${diffArchFileNamePrefix}_${timestamp}"
+declare -r fileDiffArchFullName="${dirWithDiffArchive}/${fileDiffArchShortName}"
+
+# File container with Dar batch job.
+declare -r fileBatchJobContainer="$( mktemp )"
+
+# Where log file will be saved.
+declare -r fileLogFullName="${dirWithArchives}/dar-${timestamp}.log"
+
+##  internal declarations
+#########################
+
+
+
+
+function validatePrelaunch {
+    [ ! -d "${dirWithArchives}" ] \
+        && echo "ERROR:${0}:${LINENO}: Not found directory '${dirWithArchives}' with dar archives." >&2 \
+        && exit 1
+
+    [ ! -d "${dirTopToBeProcessed}" ] \
+        && echo "ERROR:${0}:${LINENO}: Not found '${dirTopToBeProcessed}' root directory to be archived by dar." >&2 \
+        && exit 1
+
+    [ -e "${fileBatchJobContainer}" ] \
+        && rm -f "${fileBatchJobContainer}"
+
+    [ -e "${fileBatchJobContainer}" ] \
+        && echo echo "ERROR:${0}:${LINENO}: Tried to remove '${fileBatchJobContainer}' but it is still exist." >&2 \
+        && exit 1
+
+    # XXX - ???
+    ! touch "${fileBatchJobContainer}" \
+        && echo "ERROR:${0}:${LINENO}: Failed while creation dar batch job file '${fileBatchJobContainer}'" >&2 \
+        && exit 1
+
+    if [ ! -e "${fileLogFullName}" ] \
+        && ! touch "${fileLogFullName}"
+    then
+        echo "ERROR:${0}:${LINENO}: Failed to find or create log file '${fileLogFullName}'" >&2
+        exit 1
+    fi
+
+}
+
+function isDirExist {
+    local -r dirTarget="${1}"
+
+    [ -z "${dirTarget}" ] \
+        && echo "ERROR:${0}:${LINENO}: Got void directory name. Bailing out." >&2 \
+        && exit 1
+
+    [ -d "${dirTarget}" ] \
+        && return 0
+    return 1
+}
+
+function removeBaseArchiveAssistedByUser {
+    local -r dirWithArchive="${1}"
+
+    ! isDirExist "${dirWithArchive}" \
+        && return 1
+
+    echo ""
+    echo "The directory"
+    echo "    '${dirWithArchive}'"
+    echo "for the base archive labeled"
+    echo "    '${archiveSetHumanId}'"
+    echo "already exist."
+    echo ""
+
+    ! readUserAnswer "Remove this directory with the base archive?" \
+        && echo "INFORMATION:${0}:${LINENO}: Do nothing."
+        && exit 1
+
+    if readUserAnswer "Really delete base backup?\n"
+    then
+        waitSomeSeconds 10
+        rm -rf "${dirWithArchive}"
+        [ -d "${dirWithArchive}" ] \
+            && echo "ERROR:${0}:${LINENO}: Tried to remove '${dirWithArchive}' but it is still exist." >&2 \
+            && exit 1
+    fi
+}
+
+function readUserAnswer {
+    # This will read user responce.
+    local -r question2ask="${1}"
+
+    local    answer=""
+
+    echo -en "${question2ask} [yes/no] " # XXX - '-e' switch must be removed.
+    while read answer ; do
+        case "${answer}" in
+        yes)
+            return 0
+        ;;
+        no)
+            return 1
+        ;;
+        *)
+            echo "Enter exactly yes or no. Case sensitive."
+        ;;
+        esac
+    done
+}
+
+function waitSomeSeconds {
+    # This will show seconds backcounter.
+    local -r timeout=${1}
+
+    # XXX - Need to filter only numbers from 'timeout'.
+    for i in $( seq ${timeout} -1 1) ; do
+        echo -en "Will go forward in $i sec.    \r"
+        sleep 1
+    done
+    echo -en "                                     \r"
+}
+
+function houseKeep {
+    # After all was done this will clean garbage if any and like that.
+    [ -e "${fileBatchJobContainer}" ] \
+        && rm -f "${fileBatchJobContainer}"
+}
+
+function printOutJobConfigFile {
+    echo '# Root directory for Dar.'
+    echo "-R \"${dirTopToBeProcessed}\""
+    echo ''
+    echo '# Directories to include in archive'
+
+    while read obj_name ; do
+        # remove trailing or leading symbol '/' if any
+        obj_name="$( sed -e 's/\/$//g' -e 's/^\///g' <<< "${obj_name}" )"
+        [ ! -z "${obj_name}" ] \
+            && [ "${obj_name:0:1}" != "#" ] \
+            && echo "-g \"${obj_name}\""
+    done <<< "${includeItemsIntoArchiveList}"
+    echo ''
+
+    echo '# Directories to exclude from archive'
+    while read obj_name ; do
+        obj_name="$( sed -e 's/\/$//g' -e 's/^\///g' <<< "${obj_name}" )" # Remove trailing or leading symbol '/' if any.
+        [ ! -z "${obj_name}" ] \
+            && [ "${obj_name:0:1}" != "#" ] \
+            && echo "-P \"${obj_name}\""
+    done <<< "${ignoreItemsList}"
+    echo ''
+
+    echo '# Use gzip compression'
+    echo '--gzip=9'
+    echo ''
+    echo '# Do not compress these files'
+    while read obj_name ; do
+        [ ! -z "${obj_name}" ] \
+            && echo "-Z ${obj_name}"
+    done <<< "${itemsNotToBeComressedList}"
+    echo ''
+
+    echo '# Do not read DAR configuration files (~/.darrc or /etc/darrc)
+    -N
+    '
+    echo '# Preserve ignored directory names
+    -D
+    '
+    echo '# Create slices of size in Mb
+    --slice 1400M
+    '
+}
+
+function showDoc {
+    cat << EOF
+Usage:
+
+        $( basename ${0} ) (--routine|-r)=(base|diff) (--source|-s)=/dir/name [--source=/name/mask] [--exclude=/name/mask]  [--no-compression=/name/mask] [--help|-h] [--debug|-d]
+
+    --routine
+        base - create base archive using this routine.
+        diff - create diffential archive based on earlier created base archive.
+
+    --source
+        Here is defined what a directory to backup. Not implemented, at the moment the name is hardcoded.
+
+    --include
+    --exclude
+    --no-compression
+        Are not implemented. Include, exclude, not to be compressed items lists. They are hardcoded at the time of writing.
+
+    --debug
+        Will show Dar batch job list and exit. Not implemented.
+
+    --help
+        Will show some script description.
+
+This script location and location of a directories with base and differential archives are the same. I.e. put this script into a directory for base and differential archives. Base and differential archives are located in corresponging subdirectories.
+EOF
+}
+
+
+  #
+ # #
+# # #
+ # #
+  #
+
+
+routineName=""
+doDebugFlag="false"
+until [ -z "${1}" ] ; do
+    argumentName="${1%%=*}"
+    argumentValue="${1#*=}"
+    case "${argumentName}" in
+    --help|help|-h|h)
+        showDoc
+        houseKeep
+        exit 0
+    ;;
+    --routine|routine|-r|r)
+        [ -z "${routineName}" ] \
+            && declare -r routineName="${argumentValue}"
+    ;;
+    --source|source|-s|s)
+        [ -z "${dirTopToBeProcessed}" ] \
+            && declare -r dirTopToBeProcessed="${argumentValue}"
+    ;;
+    --debug|debug|-d|d)
+        declare -r doDebugFlag="true"
+    ;;
+    *)
+        echo "ERROR:${0}:${LINENO}: Unknown argument '${1}' in command line. Try '$( basename "${0}" ) --help' for help." >&2 \
+        exit 1
+    ;;
+    esac
+    shift
+done
+
+validatePrelaunch
+
+printOutJobConfigFile >> "${fileBatchJobContainer}"
+
+echo "===> Start at ${timestamp}" >> "${fileLogFullName}"
+
+case "${routineName}" in
+    base)
+        isDirExist "${dirWithBaseArchive}"
+            && removeBaseArchiveAssistedByUser "${dirWithBaseArchive}"
+
+        mkdir -p "${dirWithBaseArchive}"
+        ! isDirExist "${dirWithBaseArchive}" \
+            && echo "ERROR:${0}:${LINENO}: Failed to create or find base archive directory '${dirWithBaseArchive}'." >&2 \
+            && exit 1
+
+        echo "INFORMATION:${0}:${LINENO}: See log via 'tail -f \"${fileLogFullName}\" | egrep -i \"(error|fail)\"'."
+
+        echo "INFORMATION:${0}:${LINENO}: Starting up, ${timestamp}." | tee --append "${fileLogFullName}"
+        echo "INFORMATION:${0}:${LINENO}: Doing: dar -c" "${fileBaseArchFullName}" "-B" "${fileBatchJobContainer}" "-v -X" "${baseArchFileNamePrefix}.*.dar" | tee --append "${fileLogFullName}"
+
+        dar -c "${fileBaseArchFullName}" \
+                -B "${fileBatchJobContainer}" \
+                -v \
+                -X "${baseArchFileNamePrefix}.*.dar" \
+                -Q \
+            | tee --append "${fileLogFullName}"
+
+        # XXX - If exit is unclean, unfinished archive will stay on the storage.
+    ;;
+    diff)
+        # Nothing to do without base archive.
+        ! isDirExist "${dirWithBaseArchive}" \
+            && echo "ERROR:${0}:${LINENO}: Not found base archive directory '${dirWithBaseArchive}'." >&2 \
+            && exit 1
+
+        [ ! -e "${fileBaseArchFullName}.1.dar" ] \
+            && echo "ERROR:${0}:${LINENO}: In directory '${dirWithBaseArchive}' not found first dar base archive file '${fileBaseArchFullName}.1.dar'." >&2 \
+            && exit 1
+
+        ! isDirExist "${dirWithDiffArchive}" \
+            && mkdir -p "${dirWithDiffArchive}"
+
+        ! isDirExist "${dirWithDiffArchive}" \
+            && echo "ERROR:${0}:${LINENO}: Tried to create and did not found diff archive directory '${dirWithDiffArchive}'." >&2 \
+            && exit 1
+
+        echo "INFORMATION:${0}:${LINENO}: See log via 'tail -f \"${fileLogFullName}\" | egrep -i \"(error|fail)\"'."
+        echo "INFORMATION:${0}:${LINENO}: Starting up, ${timestamp}." | tee --append "${fileLogFullName}"
+        echo "INFORMATION:${0}:${LINENO}: Doing:" "dar -c" "${fileDiffArchFullName}" "-A" "${fileBaseArchFullName}" "-B" "${fileBatchJobContainer}" "-v -X" "${diffArchFileNamePrefix}.*.dar" | tee --append "${fileLogFullName}"
+
+        dar -c "${fileDiffArchFullName}" \
+                -A "${fileBaseArchFullName}" \
+                -B "${fileBatchJobContainer}" \
+                -v \
+                -X "${diffArchFileNamePrefix}.*.dar" \
+                -Q \
+            | tee --append "${fileLogFullName}"
+
+        # If exit is unclean, unfinished archive will stay on the storage.
+
+    ;;
+    *)
+        echo "ERROR:${0}:${LINENO}: Unknown routine name." >&2
+        showDoc
+        houseKeep
+        exit 1
+    ;;
+esac
+houseKeep
+
+echo "INFORMATION:${0}:${LINENO}: Job done at $( date '+%Y-%m-%d_%H-%M_%S' ) (launched at '{timestamp}')." | tee --append "${fileLogFullName}"
+echo "INFORMATION:${0}:${LINENO}: Try to see errors if any via 'cat \"${fileLogFullName}\" | egrep -i \"(error|fail)\"'."
