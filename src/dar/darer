@@ -79,25 +79,20 @@ declare -r itemsNotToBeComressedList="
 #########################
 ##  internal declarations
 
-#  XXX - this information must be organised in a more evident way.
-#  This script location and location of a directories with base and
-#  differential archives are the same. I.e. put this script into
-#  a directory for base and differential archives. Base and differential
-#  archives are located in corresponging subdirectories.
 if [ "$( dirname "${0}" )" == "." ] ; then
-    declare -r dirWithArchives="$( pwd )"
+    declare -r dirWithAllTypesArchives="$( pwd )"
 else
-    declare -r dirWithArchives="$( dirname "${0}" )"
+    declare -r dirWithAllTypesArchives="$( dirname "${0}" )"
 fi
 
 # Where is located the base archive.
-declare -r dirWithBaseArchive="${dirWithArchives}/base-${archiveSetStartDate}"
+declare -r dirWithBaseArchive="${dirWithAllTypesArchives}/base-${archiveSetStartDate}"
 declare -r baseArchFileNamePrefix="${archiveSetHumanId}_base"
 declare -r fileBaseArchShortName="${baseArchFileNamePrefix}_${archiveSetStartDate}"
 declare -r fileBaseArchFullName="${dirWithBaseArchive}/${fileBaseArchShortName}"
 
 # Where to create differential backup.
-declare -r dirWithDiffArchive="${dirWithArchives}/diff-${timestamp}"
+declare -r dirWithDiffArchive="${dirWithAllTypesArchives}/diff-${timestamp}"
 declare -r diffArchFileNamePrefix="${archiveSetHumanId}_diff"
 declare -r fileDiffArchShortName="${diffArchFileNamePrefix}_${timestamp}"
 declare -r fileDiffArchFullName="${dirWithDiffArchive}/${fileDiffArchShortName}"
@@ -106,7 +101,7 @@ declare -r fileDiffArchFullName="${dirWithDiffArchive}/${fileDiffArchShortName}"
 declare -r fileBatchJobContainer="$( mktemp )"
 
 # Where log file will be saved.
-declare -r fileLogFullName="${dirWithArchives}/dar-${timestamp}.log"
+declare -r fileLogFullName="${dirWithAllTypesArchives}/dar-${timestamp}.log"
 
 ##  internal declarations
 #########################
@@ -115,8 +110,8 @@ declare -r fileLogFullName="${dirWithArchives}/dar-${timestamp}.log"
 
 
 function validatePrelaunch {
-    [ ! -d "${dirWithArchives}" ] \
-        && echo "ERROR:${0}:${LINENO}: Not found directory '${dirWithArchives}' with dar archives." >&2 \
+    [ ! -d "${dirWithAllTypesArchives}" ] \
+        && echo "ERROR:${0}:${LINENO}: Not found directory '${dirWithAllTypesArchives}' with dar archives." >&2 \
         && exit 1
 
     [ ! -d "${dirTopToBeProcessed}" ] \
